@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::rc::Rc;
+
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 
 use crate::game::Guess;
 use crate::game::GuessOutcome;
@@ -68,6 +72,7 @@ impl Pattern {
     }
 }
 
+#[derive(Default)]
 pub struct Word {
     word: Vec<char>,
 }
@@ -127,10 +132,85 @@ impl From<&str> for Word {
     }
 }
 
+pub trait HasWords {
+    fn possible_words(&self) -> &Vec<Rc<Word>>;
+
+    /// Return a random word if non-empty or None.
+    fn random_word(&self) -> Option<Rc<Word>> {
+        let mut rng = thread_rng();
+        let words = self.possible_words();
+        words.choose(&mut rng).cloned()
+    }
+
+    /// Returns the unweighted entropy of this distribution (i.e. the -log2 of the cardinality of
+    /// the remaining guessing space).
+    fn unweighted_entropy(&self) -> f64 {
+        -(self.possible_words().len() as f64).log2()
+    }
+}
+
+pub trait HasWordScores: HasWords {
+    fn possible_scores(&self) -> &Vec<f64>;
+
+    /// Returns the unweighted entropy of this distribution (i.e. the -log2 of the cardinality of
+    /// the remaining guessing space).
+    fn weighted_entropy(&self) -> f64 {
+        0f64
+    }
+}
+
+pub trait CanPatternFilter: HasWordScores {
+    /// Returns a `SubWordlist` of the words matching the given `Pattern`.
+    fn filter_pattern(&self, pattern: &Pattern) -> Rc<SubWordlist> {
+        let words = self.possible_words();
+        let scores = self.possible_scores();
+        let indices: Vec<usize> = words
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, word)| {
+                if word.matches(pattern) {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Rc::new(SubWordlist {
+            words: indices
+                .iter()
+                .filter_map(|idx| words.get(*idx))
+                .cloned()
+                .collect(),
+            scores: indices
+                .iter()
+                .filter_map(|idx| scores.get(*idx))
+                .cloned()
+                .collect(),
+        })
+    }
+}
+
+/// The Wordlist object contains the list of all valid words and associated frequencies.
+#[derive(Default)]
 pub struct Wordlist {
-    words: Vec<Word>,
+    words: Vec<Rc<Word>>,
     scores: Vec<f64>,
 }
+
+impl HasWords for Wordlist {
+    fn possible_words(&self) -> &Vec<Rc<Word>> {
+        &self.words
+    }
+}
+
+impl HasWordScores for Wordlist {
+    fn possible_scores(&self) -> &Vec<f64> {
+        &self.scores
+    }
+}
+
+impl CanPatternFilter for Wordlist {}
 
 impl Wordlist {
     /// Initialize a `Wordlist` from the wordlist at the file path `path`. The file
@@ -138,11 +218,11 @@ impl Wordlist {
     /// requires that the first column corresponds to the word and the last column
     /// corresponds to a nonnegative score, such that higher scores indicate the
     /// word more frequently occurs.
-    pub fn init(path: &String) -> Self {
+    pub fn init(path: &String) -> Rc<Self> {
         let file =
             File::open(path).expect(format!("Could not read wordlist at path '{}'", path).as_str());
 
-        let mut words: Vec<Word> = vec![];
+        let mut words: Vec<Rc<Word>> = vec![];
         let mut scores: Vec<f64> = vec![];
 
         let lines = BufReader::new(file).lines();
@@ -157,10 +237,61 @@ impl Wordlist {
                 .parse()
                 .unwrap();
 
-            words.push(Word::from(word));
+            words.push(Rc::new(Word::from(word)));
             scores.push(score);
         });
 
-        Wordlist { words, scores }
+        let words = words;
+        let scores = Wordlist::normalize_scores(scores);
+
+        Rc::new(Wordlist { words, scores })
+    }
+
+    /// Normalize scores in the given vector by mapping them to a function of
+    /// the base-10 logarithm of their z-scores.
+    fn normalize_scores(scores: Vec<f64>) -> Vec<f64> {
+        if scores.is_empty() {
+            return vec![];
+        }
+
+        let num = scores.len() as f64;
+        let sum: f64 = scores.iter().sum();
+        let mean = sum / num;
+        let variance: f64 = scores
+            .iter()
+            .map(|&val| (val - mean) * (val - mean))
+            .sum::<f64>()
+            / num;
+        let stddev = variance.sqrt();
+
+        scores
+            .into_iter()
+            .map(|score| {
+                let z_score: f64 = (score - mean) / stddev;
+                z_score.log10()
+            })
+            .collect()
     }
 }
+
+#[derive(Default)]
+pub struct SubWordlist {
+    words: Vec<Rc<Word>>,
+    scores: Vec<f64>,
+}
+
+impl HasWords for SubWordlist {
+    fn possible_words(&self) -> &Vec<Rc<Word>> {
+        &self.words
+    }
+}
+
+impl HasWordScores for SubWordlist {
+    fn possible_scores(&self) -> &Vec<f64> {
+        &self.scores
+    }
+}
+
+impl CanPatternFilter for SubWordlist {}
+
+impl SubWordlist {}

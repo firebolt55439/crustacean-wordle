@@ -14,14 +14,13 @@ use crate::game::TileOutcome;
 /// Allowed word length (all words not of this length are filtered out in the Wordlist initializer).
 const WORD_LENGTH: usize = 5;
 
-/// Whether or not to strip out words that have a frequency score of 0
-/// from the wordlist.
-const IGNORE_ZERO_FREQ_WORDS: bool = true;
+/// Strip out words that have a frequency score of lower than this threshold.
+const FREQ_SCORE_THRESHOLD: f64 = 1000_f64;
 
 /// For a specific word character position, this object records whether or not
 /// the position is known to contain a specific character or known to not
 /// contain a set of characters.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlaceConstraint {
     IsChar(char),
     IsNotChars(Vec<char>),
@@ -52,28 +51,32 @@ impl Pattern {
             .map(|(a, b)| (a.to_owned(), b.to_owned()));
         constraints.extend(constraints_kvs);
 
-        let mut count_map: HashMap<&char, usize> = HashMap::new();
+        let mut count_map: HashMap<&char, usize> = HashMap::new(); // store the min count of characters that appear in yellow at least once
+        let mut to_disallow: Vec<&char> = Vec::new(); // what we will consider banning entirely (depends on if seen in string)
 
         for (idx, (ch, outcome)) in guess.paired_iter().enumerate() {
             match outcome {
-                TileOutcome::Gray => {
-                    if !disallowed.contains(ch) {
-                        disallowed.insert(ch.to_owned());
+                TileOutcome::Gray | TileOutcome::Yellow => {
+                    if outcome == &TileOutcome::Gray {
+                        to_disallow.push(ch);
+                    } else {
+                        *count_map.entry(ch).or_insert(0) += 1;
                     }
-                }
-                TileOutcome::Yellow => {
-                    *count_map.entry(ch).or_insert(0) += 1;
-                    if let Some(cons) = constraints.get_mut(&idx) {
-                        match cons {
-                            PlaceConstraint::IsChar(_) => {}
-                            PlaceConstraint::IsNotChars(chars) => {
-                                if !chars.contains(ch) {
-                                    chars.push(ch.to_owned());
+
+                    if !disallowed.contains(ch) {
+                        if let Some(cons) = constraints.get_mut(&idx) {
+                            match cons {
+                                PlaceConstraint::IsChar(_) => {}
+                                PlaceConstraint::IsNotChars(chars) => {
+                                    if !chars.contains(ch) {
+                                        chars.push(ch.to_owned());
+                                    }
                                 }
                             }
+                        } else {
+                            constraints
+                                .insert(idx, PlaceConstraint::IsNotChars(vec![ch.to_owned()]));
                         }
-                    } else {
-                        constraints.insert(idx, PlaceConstraint::IsNotChars(vec![ch.to_owned()]));
                     }
                 }
                 TileOutcome::Green => {
@@ -83,9 +86,14 @@ impl Pattern {
             }
         }
 
-        for (ch, count) in must_contain.iter_mut() {
-            if count_map.contains_key(&ch) {
-                *count = usize::max(*count, count_map[&ch]);
+        for (ch, count) in count_map.iter() {
+            let entry = must_contain.entry(**ch).or_insert(*count);
+            *entry = (*entry).max(*count);
+        }
+
+        for ch in to_disallow {
+            if !count_map.contains_key(ch) && !disallowed.contains(ch) {
+                disallowed.insert(ch.to_owned());
             }
         }
 
@@ -322,13 +330,13 @@ impl Wordlist {
             let word = columns.next().expect("Could not read word from column");
             let score: f64 = columns.last().unwrap_or("0").parse().unwrap();
 
-            // Check length of word
+            // Check length of word.
             if word.len() != WORD_LENGTH {
                 return;
             }
 
-            // If enabled, filter out word if it has a nonpositive frequency score
-            if IGNORE_ZERO_FREQ_WORDS && score <= 0.0_f64 {
+            // Filter out words with too low of a frequency score.
+            if score < FREQ_SCORE_THRESHOLD {
                 return;
             }
 
@@ -342,6 +350,12 @@ impl Wordlist {
         println!("Loaded wordlist.");
 
         Arc::new(Wordlist { words, scores })
+    }
+
+    /// Find the given `word` in the list and return Some(match) if it
+    /// is found, else None.
+    pub fn get_word(&self, word: &str) -> Option<WordPtr> {
+        self.words.iter().find(|&w| w.get_word() == word).cloned()
     }
 
     /// Normalize scores in the given vector by mapping them to a function of
@@ -414,7 +428,35 @@ mod tests {
 
     #[test]
     fn test_matches() {
-        //
+        let pattern = Pattern {
+            disallowed: HashSet::from_iter(vec!['a', 'b', 'c']),
+            must_contain: HashMap::from_iter(vec![('d', 2_usize), ('e', 1_usize)]),
+            constraints: HashMap::from_iter(vec![
+                (0, PlaceConstraint::IsChar('d')),
+                (1, PlaceConstraint::IsNotChars(vec!['d', 'e'])),
+                (2, PlaceConstraint::IsChar('d')),
+            ]),
+        };
+
+        assert!(!Word::from("ded").matches(&pattern));
+        assert!(!Word::from("dede").matches(&pattern));
+        assert!(!Word::from("ddde").matches(&pattern));
+        assert!(!Word::from("dcde").matches(&pattern));
+        assert!(Word::from("dfde").matches(&pattern));
+
+        let pattern = Pattern {
+            disallowed: HashSet::from_iter(vec!['y', 's', 'h', 'a', 't', 'z']),
+            must_contain: HashMap::from_iter(vec![]),
+            constraints: HashMap::from_iter(vec![
+                (0, PlaceConstraint::IsNotChars(vec!['w'])),
+                (1, PlaceConstraint::IsChar('e')),
+                (3, PlaceConstraint::IsChar('e')),
+            ]),
+        };
+
+        assert!(Word::from("rewed").matches(&pattern));
+        assert!(Word::from("beweded").matches(&pattern));
+        assert!(!Word::from("zeweded").matches(&pattern));
     }
 
     #[test]
@@ -436,6 +478,79 @@ mod tests {
                 TileOutcome::Gray,
                 TileOutcome::Green,
             ]
+        );
+    }
+
+    #[test]
+    fn test_ingest() {
+        let pattern = Pattern::default();
+        let pattern1 = pattern.ingest(&Guess {
+            guess: vec!['t', 'a', 'r', 'e', 's'],
+            outcome: vec![
+                TileOutcome::Yellow,
+                TileOutcome::Gray,
+                TileOutcome::Gray,
+                TileOutcome::Gray,
+                TileOutcome::Gray,
+            ],
+        });
+
+        assert_eq!(
+            pattern1.disallowed,
+            HashSet::from_iter(vec!['r', 'a', 's', 'e'])
+        );
+        assert_eq!(
+            pattern1.must_contain,
+            HashMap::from_iter(vec![('t', 1_usize)])
+        );
+        assert_eq!(
+            pattern1.constraints,
+            HashMap::from_iter(vec![
+                (0, PlaceConstraint::IsNotChars(vec!['t'])),
+                (1, PlaceConstraint::IsNotChars(vec!['a'])),
+                (2, PlaceConstraint::IsNotChars(vec!['r'])),
+                (3, PlaceConstraint::IsNotChars(vec!['e'])),
+                (4, PlaceConstraint::IsNotChars(vec!['s'])),
+            ])
+        );
+
+        let pattern = Pattern {
+            disallowed: HashSet::from_iter(vec!['a', 'b', 'c']),
+            must_contain: HashMap::from_iter(vec![('e', 1_usize)]),
+            constraints: HashMap::from_iter(vec![
+                (0, PlaceConstraint::IsChar('d')),
+                (1, PlaceConstraint::IsChar('e')),
+                (2, PlaceConstraint::IsChar('d')),
+            ]),
+        };
+
+        let pattern2 = pattern.ingest(&Guess {
+            guess: vec!['d', 'e', 'd', 'e', 'f', 'e'],
+            outcome: vec![
+                TileOutcome::Green,
+                TileOutcome::Green,
+                TileOutcome::Green,
+                TileOutcome::Yellow,
+                TileOutcome::Yellow,
+                TileOutcome::Gray,
+            ],
+        });
+
+        assert_eq!(pattern2.disallowed, HashSet::from_iter(vec!['a', 'b', 'c']));
+        assert_eq!(
+            pattern2.must_contain,
+            HashMap::from_iter(vec![('f', 1_usize), ('d', 2_usize), ('e', 2_usize)])
+        );
+        assert_eq!(
+            pattern2.constraints,
+            HashMap::from_iter(vec![
+                (0, PlaceConstraint::IsChar('d')),
+                (1, PlaceConstraint::IsChar('e')),
+                (2, PlaceConstraint::IsChar('d')),
+                (3, PlaceConstraint::IsNotChars(vec!['e'])),
+                (4, PlaceConstraint::IsNotChars(vec!['f'])),
+                (5, PlaceConstraint::IsNotChars(vec!['e'])),
+            ])
         );
     }
 }

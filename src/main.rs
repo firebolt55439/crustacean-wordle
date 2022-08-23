@@ -16,7 +16,8 @@ fn main() {
     );
 
     let mut game = Game::init(wordlist.clone(), &EntropyStrategy::init);
-    game.choose_word();
+    // game.choose_random_word();
+    game.choose_word("heady");
     game.set_verbosity(strategy::StrategyVerbosity::PrettyPrint);
 
     while !game.is_over() {

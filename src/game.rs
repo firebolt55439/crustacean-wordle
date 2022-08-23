@@ -67,11 +67,19 @@ impl Game {
     }
 
     /// Choose a word at random from the wordlist.
-    pub fn choose_word(&mut self) {
+    pub fn choose_random_word(&mut self) {
         self.word = self
             .wordlist
             .random_word()
             .expect("Could not choose word from empty list!");
+    }
+
+    /// Choose the given word.
+    pub fn choose_word(&mut self, word: &str) {
+        self.word = self
+            .wordlist
+            .get_word(word)
+            .expect("Given word is not in wordlist!");
     }
 
     /// Make a given guess.

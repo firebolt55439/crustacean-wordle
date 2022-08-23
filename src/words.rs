@@ -33,6 +33,7 @@ pub enum PlaceConstraint {
 #[derive(Default)]
 pub struct Pattern {
     pub disallowed: HashSet<char>,
+    pub must_contain: HashMap<char, usize>,
     pub constraints: HashMap<usize, PlaceConstraint>,
 }
 
@@ -41,6 +42,7 @@ impl Pattern {
     /// of `guess`.
     pub fn ingest(&self, guess: &Guess) -> Self {
         let mut disallowed = self.disallowed.clone();
+        let mut must_contain = self.must_contain.clone();
 
         let mut constraints: HashMap<usize, PlaceConstraint> = HashMap::new();
         constraints.reserve(self.constraints.len());
@@ -50,6 +52,8 @@ impl Pattern {
             .map(|(a, b)| (a.to_owned(), b.to_owned()));
         constraints.extend(constraints_kvs);
 
+        let mut count_map: HashMap<&char, usize> = HashMap::new();
+
         for (idx, (ch, outcome)) in guess.paired_iter().enumerate() {
             match outcome {
                 TileOutcome::Gray => {
@@ -58,6 +62,7 @@ impl Pattern {
                     }
                 }
                 TileOutcome::Yellow => {
+                    *count_map.entry(ch).or_insert(0) += 1;
                     if let Some(cons) = constraints.get_mut(&idx) {
                         match cons {
                             PlaceConstraint::IsChar(_) => {}
@@ -72,13 +77,21 @@ impl Pattern {
                     }
                 }
                 TileOutcome::Green => {
+                    *count_map.entry(ch).or_insert(0) += 1;
                     constraints.insert(idx, PlaceConstraint::IsChar(ch.to_owned()));
                 }
             }
         }
 
+        for (ch, count) in must_contain.iter_mut() {
+            if count_map.contains_key(&ch) {
+                *count = usize::max(*count, count_map[&ch]);
+            }
+        }
+
         Pattern {
             disallowed,
+            must_contain,
             constraints,
         }
     }
@@ -103,6 +116,11 @@ impl Word {
         self.word.contains(ch)
     }
 
+    /// Number of occurrences of character `ch`.
+    fn num_occurrences(&self, ch: &char) -> usize {
+        self.word.iter().filter(|c| c == &ch).count()
+    }
+
     /// Whether or not the word obeys the `PlaceConstraint` for the
     /// given `usize` index.
     fn obeys_constraint(&self, cons: (&usize, &PlaceConstraint)) -> bool {
@@ -122,6 +140,12 @@ impl Word {
     pub fn matches(&self, pattern: &Pattern) -> bool {
         for ch in &pattern.disallowed {
             if self.has_letter(ch) {
+                return false;
+            }
+        }
+
+        for (ch, count) in &pattern.must_contain {
+            if self.num_occurrences(ch) < *count {
                 return false;
             }
         }

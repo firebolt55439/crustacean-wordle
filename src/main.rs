@@ -1,7 +1,7 @@
 use game::Game;
 use std::env;
 use strategy::EntropyStrategy;
-use words::{HasWords, Wordlist};
+use words::Wordlist;
 
 mod game;
 mod strategy;
@@ -17,6 +17,7 @@ fn main() {
 
     let mut game = Game::init(wordlist.clone(), &EntropyStrategy::init);
     game.choose_word();
+    game.set_verbosity(strategy::StrategyVerbosity::PrettyPrint);
 
     while !game.is_over() {
         let guess = game.next_guess();

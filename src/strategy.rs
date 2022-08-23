@@ -7,6 +7,7 @@ use crate::{
     words::{CanPatternFilter, HasWords, Pattern, WordPtr, WordlistPtr},
 };
 
+#[derive(PartialEq, Eq)]
 pub enum StrategyVerbosity {
     Silent,
     PrettyPrint,
@@ -29,6 +30,9 @@ pub trait Strategy {
 
     /// Pretty-print strategy information.
     fn pretty_print(&self, history: &Vec<HashMap<String, f64>>);
+
+    /// Set strategy verbosity.
+    fn set_verbosity(&mut self, verbosity: StrategyVerbosity);
 }
 
 pub struct EntropyStrategy {
@@ -50,7 +54,10 @@ impl Strategy for EntropyStrategy {
     fn chosen_guess(&self) -> WordPtr {
         let words = self.extant.possible_words();
 
-        let pb = ProgressBar::new(words.len() as u64);
+        let pb = match self.verbosity {
+            StrategyVerbosity::PrettyPrint => ProgressBar::new(words.len() as u64),
+            _ => ProgressBar::hidden(),
+        };
 
         let current_entropy = self.extant.unweighted_entropy();
         let best_guess = words
@@ -60,8 +67,7 @@ impl Strategy for EntropyStrategy {
                 let mut possible_patterns: HashMap<Vec<TileOutcome>, usize> = HashMap::new();
                 for actual_word in words {
                     let outcome = actual_word.outcome_of_guess(guess.clone());
-                    let mut key_entry = possible_patterns.entry(outcome).or_insert(0);
-                    *key_entry += 1;
+                    *possible_patterns.entry(outcome).or_insert(0) += 1;
                 }
 
                 let mut total_gain = 0.0_f64;
@@ -126,12 +132,17 @@ impl Strategy for EntropyStrategy {
             self.extant.unweighted_entropy()
         );
         println!("Disallowed characters: {:?}", self.knowledge.disallowed);
+        println!("Must-contain characters: {:?}", self.knowledge.must_contain);
         println!("Constraints: {:?}", self.knowledge.constraints);
         println!();
 
         for (idx, metrics) in history.iter().enumerate() {
             println!("History Entry #{}: {:?}", idx + 1, metrics);
         }
+    }
+
+    fn set_verbosity(&mut self, verbosity: StrategyVerbosity) {
+        self.verbosity = verbosity;
     }
 }
 

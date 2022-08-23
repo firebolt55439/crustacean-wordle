@@ -1,7 +1,7 @@
 use std::{collections::HashMap, iter::Zip, sync::Arc};
 
 use crate::{
-    strategy::Strategy,
+    strategy::{Strategy, StrategyVerbosity},
     words::{HasWords, WordPtr, WordlistPtr},
 };
 
@@ -164,5 +164,10 @@ impl Game {
             GameState::GuesserDefeat | GameState::GuesserVictory => true,
             _ => false,
         }
+    }
+
+    /// Set strategy verbosity.
+    pub fn set_verbosity(&mut self, verbosity: StrategyVerbosity) {
+        self.strategy.set_verbosity(verbosity)
     }
 }

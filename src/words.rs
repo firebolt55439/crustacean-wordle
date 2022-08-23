@@ -1,16 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
 
+use counter::Counter;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
 use crate::game::Guess;
-use crate::game::GuessOutcome;
+use crate::game::TileOutcome;
 
-/// Allowed word length.
+/// Allowed word length (all words not of this length are filtered out in the Wordlist initializer).
 const WORD_LENGTH: usize = 5;
 
 /// Whether or not to strip out words that have a frequency score of 0
@@ -31,7 +32,7 @@ pub enum PlaceConstraint {
 /// constraints.
 #[derive(Default)]
 pub struct Pattern {
-    pub disallowed: Vec<char>,
+    pub disallowed: HashSet<char>,
     pub constraints: HashMap<usize, PlaceConstraint>,
 }
 
@@ -51,12 +52,12 @@ impl Pattern {
 
         for (idx, (ch, outcome)) in guess.paired_iter().enumerate() {
             match outcome {
-                GuessOutcome::Gray => {
+                TileOutcome::Gray => {
                     if !disallowed.contains(ch) {
-                        disallowed.push(ch.to_owned());
+                        disallowed.insert(ch.to_owned());
                     }
                 }
-                GuessOutcome::Yellow => {
+                TileOutcome::Yellow => {
                     if let Some(cons) = constraints.get_mut(&idx) {
                         match cons {
                             PlaceConstraint::IsChar(_) => {}
@@ -70,7 +71,7 @@ impl Pattern {
                         constraints.insert(idx, PlaceConstraint::IsNotChars(vec![ch.to_owned()]));
                     }
                 }
-                GuessOutcome::Green => {
+                TileOutcome::Green => {
                     constraints.insert(idx, PlaceConstraint::IsChar(ch.to_owned()));
                 }
             }
@@ -119,43 +120,48 @@ impl Word {
 
     /// Whether or not this word matches the `Pattern` given in `pattern`.
     pub fn matches(&self, pattern: &Pattern) -> bool {
-        if pattern.disallowed.iter().any(|ch| self.has_letter(ch)) {
-            return false;
+        for ch in &pattern.disallowed {
+            if self.has_letter(ch) {
+                return false;
+            }
         }
 
-        if !pattern
-            .constraints
-            .iter()
-            .all(|cons| self.obeys_constraint(cons))
-        {
-            return false;
+        for cons in &pattern.constraints {
+            if !self.obeys_constraint(cons) {
+                return false;
+            }
         }
 
         true
     }
 
     /// Return the outcome of the given guess against this word.
-    pub fn outcome_of_guess(&self, guess: WordPtr) -> Box<Guess> {
-        let chars = guess.word.clone();
-        let mut outcomes: Vec<GuessOutcome> = vec![];
-        for (idx, ch) in chars.iter().enumerate() {
-            let mut outcome = GuessOutcome::Gray;
-            if self.has_letter(ch) {
-                if let Some(actual) = self.word.get(idx) {
-                    if actual == ch {
-                        outcome = GuessOutcome::Green;
-                    }
-                } else {
-                    outcome = GuessOutcome::Yellow;
-                }
+    pub fn outcome_of_guess(&self, guess: WordPtr) -> Vec<TileOutcome> {
+        debug_assert_eq!(guess.get_word().len(), self.get_word().len());
+
+        let word_length_range = 0..guess.get_word().len();
+        let mut outcomes: Vec<TileOutcome> = word_length_range
+            .clone()
+            .map(|_| TileOutcome::Gray)
+            .collect();
+
+        let mut counts = self.word.iter().collect::<Counter<_, i32>>();
+
+        for idx in word_length_range {
+            if self.word[idx] == guess.word[idx] {
+                outcomes[idx] = TileOutcome::Green;
+                counts[&&(self.word[idx])] -= 1;
             }
-            outcomes.push(outcome);
         }
 
-        Box::new(Guess {
-            guess: chars,
-            outcome: outcomes,
-        })
+        for (idx, ch) in guess.word.iter().enumerate() {
+            if outcomes[idx] == TileOutcome::Gray && self.has_letter(ch) && counts[&ch] > 0 {
+                counts[&ch] -= 1;
+                outcomes[idx] = TileOutcome::Yellow;
+            }
+        }
+
+        outcomes
     }
 
     /// Getter for the word as a string.
@@ -377,3 +383,35 @@ impl HasWordScores for SubWordlist {
 impl CanPatternFilter for SubWordlist {}
 
 impl SubWordlist {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_matches() {
+        //
+    }
+
+    #[test]
+    fn test_outcome_of_guess() {
+        let word = Word::from("abccdeefxr");
+        let guess = Arc::new(Word::from("azdcccferr"));
+        let outcome = word.outcome_of_guess(guess);
+        assert_eq!(
+            outcome,
+            vec![
+                TileOutcome::Green,
+                TileOutcome::Gray,
+                TileOutcome::Yellow,
+                TileOutcome::Green,
+                TileOutcome::Yellow,
+                TileOutcome::Gray,
+                TileOutcome::Yellow,
+                TileOutcome::Yellow,
+                TileOutcome::Gray,
+                TileOutcome::Green,
+            ]
+        );
+    }
+}

@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    game::Guess,
+    game::{Guess, TileOutcome},
     words::{CanPatternFilter, HasWords, Pattern, WordPtr, WordlistPtr},
 };
 
@@ -50,35 +50,41 @@ impl Strategy for EntropyStrategy {
     fn chosen_guess(&self) -> WordPtr {
         let words = self.extant.possible_words();
 
-        let num_steps = words.len() * words.len();
-        let pb = ProgressBar::new(num_steps as u64);
+        let pb = ProgressBar::new(words.len() as u64);
 
         let current_entropy = self.extant.unweighted_entropy();
         let best_guess = words
-            // .par_iter()
-            .iter()
+            .par_iter()
+            // .iter()
             .map(|guess| {
-                let mut total_gain = 0.0_f64;
+                let mut possible_patterns: HashMap<Vec<TileOutcome>, usize> = HashMap::new();
                 for actual_word in words {
                     let outcome = actual_word.outcome_of_guess(guess.clone());
-                    let pattern = self.knowledge.ingest(&outcome);
+                    let mut key_entry = possible_patterns.entry(outcome).or_insert(0);
+                    *key_entry += 1;
+                }
+
+                let mut total_gain = 0.0_f64;
+                for (outcome, count) in possible_patterns {
+                    let guess = Guess {
+                        guess: guess.get_word().chars().collect(),
+                        outcome,
+                    };
+                    let pattern = self.knowledge.ingest(&guess);
                     let sublist = self.extant.filter_pattern(&pattern);
+
                     let new_entropy = sublist.unweighted_entropy();
                     let improvement = current_entropy - new_entropy;
-                    total_gain += improvement;
-
-                    pb.inc(1);
+                    total_gain += (count as f64) * improvement;
                 }
+
+                pb.inc(1);
 
                 // Since words.len() is constant, maximizing `total_gain` is equivalent to
                 // maximizing average gain.
-                // if total_gain > max_improvement {
-                //     max_improvement = total_gain;
-                //     best_guess = guess.clone();
-                // }
                 (total_gain, guess)
             })
-            .reduce(
+            .reduce_with(
                 |(i1, g1), (i2, g2)| {
                     if i1 > i2 {
                         (i1, g1)

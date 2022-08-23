@@ -9,23 +9,24 @@ use crate::{
 const ALLOWED_GUESSES_PER_GAME: usize = 6;
 
 /// Represents the outcomes of a guess for a single character tile.
-#[derive(Debug, PartialEq, Eq)]
-pub enum GuessOutcome {
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub enum TileOutcome {
     Gray,
     Yellow,
     Green,
 }
 
 /// Represents a guess and its paired outcome (i.e. gray/green/yellow tiles).
+#[derive(Default)]
 pub struct Guess {
     pub guess: Vec<char>,
-    pub outcome: Vec<GuessOutcome>,
+    pub outcome: Vec<TileOutcome>,
 }
 
 impl Guess {
     pub fn paired_iter(
         &self,
-    ) -> Zip<std::slice::Iter<'_, char>, std::slice::Iter<'_, GuessOutcome>> {
+    ) -> Zip<std::slice::Iter<'_, char>, std::slice::Iter<'_, TileOutcome>> {
         self.guess.iter().zip(self.outcome.iter())
     }
 }
@@ -75,7 +76,11 @@ impl Game {
 
     /// Make a given guess.
     pub fn make_guess(&mut self, guess: WordPtr) {
-        let guess = self.word.outcome_of_guess(guess.clone());
+        let outcome = self.word.outcome_of_guess(guess.clone());
+        let guess = Box::new(Guess {
+            guess: guess.get_word().chars().collect(),
+            outcome,
+        });
         self.strategy.register_guess(&guess);
         self.guesses.push(guess);
         self.push_metrics();
@@ -140,7 +145,7 @@ impl Game {
             if last_guess
                 .outcome
                 .iter()
-                .all(|item| item == &GuessOutcome::Green)
+                .all(|item| item == &TileOutcome::Green)
             {
                 GameState::GuesserVictory
             } else if self.guesses.len() >= ALLOWED_GUESSES_PER_GAME {

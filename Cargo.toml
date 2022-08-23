@@ -3,9 +3,14 @@ name = "crustacean-wordle"
 version = "0.2.0"
 edition = "2021"
 
+[profile.dev]
+# Required for dev builds to be usable
+opt-level = 1
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rand = "0.8.5"
 indicatif = "0.17.0"
 rayon = "1.5.3"
+counter = "0.5.6"

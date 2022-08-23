@@ -1,7 +1,7 @@
 use game::Game;
 use std::env;
-use strategy::{EntropyStrategy, Strategy};
-use words::{Pattern, Wordlist};
+use strategy::EntropyStrategy;
+use words::{HasWords, Wordlist};
 
 mod game;
 mod strategy;
@@ -15,6 +15,21 @@ fn main() {
             .expect("Wordlist file path parameter required as first command-line argument"),
     );
 
-    let mut game = Game::init(wordlist, &EntropyStrategy::init);
+    let mut game = Game::init(wordlist.clone(), &EntropyStrategy::init);
     game.choose_word();
+
+    while !game.is_over() {
+        let guess = game.next_guess();
+        println!("Guessing: {}", guess.get_word());
+        game.make_guess(guess);
+        game.pretty_print();
+    }
+
+    // let guess = wordlist
+    //     .random_word()
+    //     .expect("Could not make guess from empty wordlist");
+    // println!("Guessing: {}", guess.get_word());
+
+    // game.make_guess(guess);
+    // game.pretty_print();
 }

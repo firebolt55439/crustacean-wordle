@@ -19,13 +19,15 @@ pub const WORD_LENGTH: usize = 5;
 // const FREQ_SCORE_THRESHOLD: f64 = 1000_f64;
 const FREQ_SCORE_THRESHOLD: f64 = 0_f64;
 
+pub type LetterBitmask = u64;
+
 /// For a specific word character position, this object records whether or not
 /// the position is known to contain a specific character or known to not
 /// contain a set of characters.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaceConstraint {
     IsChar(char),
-    IsNotChars(Vec<char>),
+    IsNotChars(LetterBitmask),
 }
 
 /// Stores the accumulation of knowledge gained over a Wordle game, specifically
@@ -33,7 +35,7 @@ pub enum PlaceConstraint {
 /// constraints.
 #[derive(Default)]
 pub struct Pattern {
-    pub disallowed: HashSet<char>,
+    pub disallowed: LetterBitmask,
     pub must_contain: HashMap<char, usize>,
     pub constraints: HashMap<usize, PlaceConstraint>,
 }
@@ -57,6 +59,7 @@ impl Pattern {
         let mut to_disallow: Vec<&char> = Vec::new(); // what we will consider banning entirely (depends on if seen in string)
 
         for (idx, (ch, outcome)) in guess.paired_iter().enumerate() {
+            let mask = LetterBitmask::char_bitmask(ch);
             match outcome {
                 TileOutcome::Gray | TileOutcome::Yellow => {
                     if outcome == &TileOutcome::Gray {
@@ -65,19 +68,16 @@ impl Pattern {
                         *count_map.entry(ch).or_insert(0) += 1;
                     }
 
-                    if !disallowed.contains(ch) {
+                    if disallowed & mask == 0 {
                         if let Some(cons) = constraints.get_mut(&idx) {
                             match cons {
                                 PlaceConstraint::IsChar(_) => {}
                                 PlaceConstraint::IsNotChars(chars) => {
-                                    if !chars.contains(ch) {
-                                        chars.push(ch.to_owned());
-                                    }
+                                    *chars |= mask;
                                 }
                             }
                         } else {
-                            constraints
-                                .insert(idx, PlaceConstraint::IsNotChars(vec![ch.to_owned()]));
+                            constraints.insert(idx, PlaceConstraint::IsNotChars(mask));
                         }
                     }
                 }
@@ -94,8 +94,9 @@ impl Pattern {
         }
 
         for ch in to_disallow {
-            if !count_map.contains_key(ch) && !disallowed.contains(ch) {
-                disallowed.insert(ch.to_owned());
+            let mask = LetterBitmask::char_bitmask(ch);
+            if !count_map.contains_key(ch) && disallowed & mask == 0 {
+                disallowed |= mask;
             }
         }
 
@@ -107,9 +108,47 @@ impl Pattern {
     }
 }
 
+trait CanRepresentLetterBitmask {
+    fn char_bitmask(ch: &char) -> Self;
+
+    fn compute_bitmask<'a, T>(word: T) -> Self
+    where
+        T: Iterator<Item = &'a char>;
+}
+
+impl CanRepresentLetterBitmask for LetterBitmask {
+    #[inline(always)]
+    fn char_bitmask(ch: &char) -> Self {
+        1_u64 << (ch.to_ascii_lowercase() as u8 - 'a' as u8)
+    }
+
+    fn compute_bitmask<'a, T>(word: T) -> Self
+    where
+        T: Iterator<Item = &'a char>,
+    {
+        let mut output = 0_u64;
+        for ch in word {
+            output |= LetterBitmask::char_bitmask(ch);
+        }
+
+        output
+    }
+}
+
+trait CanConvertToLetterBitmask {
+    fn to_letter_bitmask(&self) -> LetterBitmask;
+}
+
+impl CanConvertToLetterBitmask for Vec<char> {
+    fn to_letter_bitmask(&self) -> LetterBitmask {
+        LetterBitmask::compute_bitmask(self.iter())
+    }
+}
+
 #[derive(Default)]
 pub struct Word {
     word: Vec<char>,
+    letters_mask: LetterBitmask,
 }
 
 impl Debug for Word {
@@ -129,11 +168,13 @@ impl Display for Word {
 
 impl Word {
     /// Whether or not the word contains character `ch`.
+    #[inline(always)]
     fn has_letter(&self, ch: &char) -> bool {
-        self.word.contains(ch)
+        self.letters_mask & LetterBitmask::char_bitmask(ch) != 0
     }
 
     /// Number of occurrences of character `ch`.
+    #[inline(always)]
     fn num_occurrences(&self, ch: &char) -> usize {
         self.word.iter().filter(|c| c == &ch).count()
     }
@@ -149,16 +190,14 @@ impl Word {
 
         match cons {
             PlaceConstraint::IsChar(ch) => ch == value,
-            PlaceConstraint::IsNotChars(chars) => !chars.contains(value),
+            PlaceConstraint::IsNotChars(chars) => chars & LetterBitmask::char_bitmask(value) == 0,
         }
     }
 
     /// Whether or not this word matches the `Pattern` given in `pattern`.
     pub fn matches(&self, pattern: &Pattern) -> bool {
-        for ch in &pattern.disallowed {
-            if self.has_letter(ch) {
-                return false;
-            }
+        if self.letters_mask & pattern.disallowed != 0 {
+            return false;
         }
 
         for (ch, count) in &pattern.must_contain {
@@ -213,16 +252,22 @@ impl Word {
 
 impl From<String> for Word {
     fn from(str: String) -> Self {
+        let word: Vec<char> = str.chars().collect();
+        let mask = LetterBitmask::compute_bitmask(word.iter());
         Word {
-            word: str.chars().collect(),
+            word,
+            letters_mask: mask,
         }
     }
 }
 
 impl From<&str> for Word {
     fn from(str: &str) -> Self {
+        let word: Vec<char> = str.chars().collect();
+        let mask = LetterBitmask::compute_bitmask(word.iter());
         Word {
-            word: str.chars().collect(),
+            word,
+            letters_mask: mask,
         }
     }
 }
@@ -442,11 +487,14 @@ mod tests {
     #[test]
     fn test_matches() {
         let pattern = Pattern {
-            disallowed: HashSet::from_iter(vec!['a', 'b', 'c']),
+            disallowed: LetterBitmask::compute_bitmask(vec!['a', 'b', 'c'].iter()),
             must_contain: HashMap::from_iter(vec![('d', 2_usize), ('e', 1_usize)]),
             constraints: HashMap::from_iter(vec![
                 (0, PlaceConstraint::IsChar('d')),
-                (1, PlaceConstraint::IsNotChars(vec!['d', 'e'])),
+                (
+                    1,
+                    PlaceConstraint::IsNotChars(vec!['d', 'e'].to_letter_bitmask()),
+                ),
                 (2, PlaceConstraint::IsChar('d')),
             ]),
         };
@@ -458,10 +506,13 @@ mod tests {
         assert!(Word::from("dfde").matches(&pattern));
 
         let pattern = Pattern {
-            disallowed: HashSet::from_iter(vec!['y', 's', 'h', 'a', 't', 'z']),
+            disallowed: LetterBitmask::compute_bitmask(vec!['y', 's', 'h', 'a', 't', 'z'].iter()),
             must_contain: HashMap::from_iter(vec![]),
             constraints: HashMap::from_iter(vec![
-                (0, PlaceConstraint::IsNotChars(vec!['w'])),
+                (
+                    0,
+                    PlaceConstraint::IsNotChars(vec!['w'].to_letter_bitmask()),
+                ),
                 (1, PlaceConstraint::IsChar('e')),
                 (3, PlaceConstraint::IsChar('e')),
             ]),
@@ -472,16 +523,28 @@ mod tests {
         assert!(!Word::from("zeweded").matches(&pattern));
 
         let pattern = Pattern {
-            disallowed: HashSet::from_iter(vec![
-                't', 'b', 'i', 'n', 'g', 's', 'z', 'e', 'l', 'u', 'y', 'r',
-            ]),
+            disallowed: LetterBitmask::compute_bitmask(
+                vec!['t', 'b', 'i', 'n', 'g', 's', 'z', 'e', 'l', 'u', 'y', 'r'].iter(),
+            ),
             must_contain: HashMap::from_iter(vec![('a', 1), ('o', 1), ('h', 1), ('c', 1)]),
             constraints: HashMap::from_iter(vec![
-                (0, PlaceConstraint::IsNotChars(vec!['s', 'l', 'b', 'a'])),
+                (
+                    0,
+                    PlaceConstraint::IsNotChars(vec!['s', 'l', 'b', 'a'].to_letter_bitmask()),
+                ),
                 (1, PlaceConstraint::IsChar('o')),
-                (2, PlaceConstraint::IsNotChars(vec!['a', 'n', 't', 'y'])),
-                (3, PlaceConstraint::IsNotChars(vec!['r', 'a', 'o', 'g'])),
-                (4, PlaceConstraint::IsNotChars(vec!['e', 'c', 'h', 'y'])),
+                (
+                    2,
+                    PlaceConstraint::IsNotChars(vec!['a', 'n', 't', 'y'].to_letter_bitmask()),
+                ),
+                (
+                    3,
+                    PlaceConstraint::IsNotChars(vec!['r', 'a', 'o', 'g'].to_letter_bitmask()),
+                ),
+                (
+                    4,
+                    PlaceConstraint::IsNotChars(vec!['e', 'c', 'h', 'y'].to_letter_bitmask()),
+                ),
             ]),
         };
 
@@ -528,7 +591,7 @@ mod tests {
 
         assert_eq!(
             pattern1.disallowed,
-            HashSet::from_iter(vec!['r', 'a', 's', 'e'])
+            LetterBitmask::compute_bitmask(vec!['r', 'a', 's', 'e'].iter())
         );
         assert_eq!(
             pattern1.must_contain,
@@ -537,16 +600,31 @@ mod tests {
         assert_eq!(
             pattern1.constraints,
             HashMap::from_iter(vec![
-                (0, PlaceConstraint::IsNotChars(vec!['t'])),
-                (1, PlaceConstraint::IsNotChars(vec!['a'])),
-                (2, PlaceConstraint::IsNotChars(vec!['r'])),
-                (3, PlaceConstraint::IsNotChars(vec!['e'])),
-                (4, PlaceConstraint::IsNotChars(vec!['s'])),
+                (
+                    0,
+                    PlaceConstraint::IsNotChars(vec!['t'].to_letter_bitmask())
+                ),
+                (
+                    1,
+                    PlaceConstraint::IsNotChars(vec!['a'].to_letter_bitmask())
+                ),
+                (
+                    2,
+                    PlaceConstraint::IsNotChars(vec!['r'].to_letter_bitmask())
+                ),
+                (
+                    3,
+                    PlaceConstraint::IsNotChars(vec!['e'].to_letter_bitmask())
+                ),
+                (
+                    4,
+                    PlaceConstraint::IsNotChars(vec!['s'].to_letter_bitmask())
+                ),
             ])
         );
 
         let pattern = Pattern {
-            disallowed: HashSet::from_iter(vec!['a', 'b', 'c']),
+            disallowed: LetterBitmask::compute_bitmask(vec!['a', 'b', 'c'].iter()),
             must_contain: HashMap::from_iter(vec![('e', 1_usize)]),
             constraints: HashMap::from_iter(vec![
                 (0, PlaceConstraint::IsChar('d')),
@@ -567,7 +645,10 @@ mod tests {
             ],
         });
 
-        assert_eq!(pattern2.disallowed, HashSet::from_iter(vec!['a', 'b', 'c']));
+        assert_eq!(
+            pattern2.disallowed,
+            LetterBitmask::compute_bitmask(vec!['a', 'b', 'c'].iter())
+        );
         assert_eq!(
             pattern2.must_contain,
             HashMap::from_iter(vec![('f', 1_usize), ('d', 2_usize), ('e', 2_usize)])
@@ -578,9 +659,18 @@ mod tests {
                 (0, PlaceConstraint::IsChar('d')),
                 (1, PlaceConstraint::IsChar('e')),
                 (2, PlaceConstraint::IsChar('d')),
-                (3, PlaceConstraint::IsNotChars(vec!['e'])),
-                (4, PlaceConstraint::IsNotChars(vec!['f'])),
-                (5, PlaceConstraint::IsNotChars(vec!['e'])),
+                (
+                    3,
+                    PlaceConstraint::IsNotChars(vec!['e'].to_letter_bitmask())
+                ),
+                (
+                    4,
+                    PlaceConstraint::IsNotChars(vec!['f'].to_letter_bitmask())
+                ),
+                (
+                    5,
+                    PlaceConstraint::IsNotChars(vec!['e'].to_letter_bitmask())
+                ),
             ])
         );
     }

@@ -72,6 +72,7 @@ pub struct Game {
     debug: bool,
 }
 
+#[derive(PartialEq, Eq)]
 pub enum GameState {
     NotStarted,
     InProgress,
@@ -247,6 +248,11 @@ impl Game {
     /// Retrieve wordlist.
     pub fn get_wordlist(&self) -> WordlistPtr {
         self.guesslist.clone()
+    }
+
+    /// Retrieve number of guesses taken.
+    pub fn num_guesses(&self) -> usize {
+        self.guesses.len()
     }
 }
 

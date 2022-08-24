@@ -12,6 +12,7 @@ use words::{HasWords, Wordlist, WordlistPtr};
 
 mod bitmask;
 mod game;
+mod pattern;
 mod strategy;
 mod words;
 

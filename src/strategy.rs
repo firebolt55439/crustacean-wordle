@@ -8,7 +8,8 @@ use std::{
 
 use crate::{
     game::{Guess, TileOutcome},
-    words::{CanPatternFilter, HasWords, Pattern, WordPtr, WordlistPtr},
+    pattern::Pattern,
+    words::{CanPatternFilter, HasWords, WordPtr, WordlistPtr},
 };
 
 /// The entropy value used in Entropy-based strategies to indicate a win when there is only one option.

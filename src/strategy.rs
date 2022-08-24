@@ -1,4 +1,4 @@
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -11,10 +11,15 @@ use crate::{
     words::{CanPatternFilter, HasWords, Pattern, WordPtr, WordlistPtr},
 };
 
+/// The entropy value used in Entropy-based strategies to indicate a win when there is only one option.
+const ENTROPY_STRATEGY_WIN_VALUE: f64 = -1000.0_f64;
+
+/// Represents verbosity options for a strategy.
 #[derive(PartialEq, Eq)]
 pub enum StrategyVerbosity {
     Silent,
     PrettyPrint,
+    Debug,
 }
 
 /// Represents a game strategy for use with `Game`.
@@ -23,7 +28,7 @@ pub trait Strategy: Display {
     fn extant_guesses(&self) -> &[WordPtr];
 
     /// The current best guess according to this strategy.
-    fn chosen_guess(&self) -> WordPtr;
+    fn chosen_guess(&self) -> Option<WordPtr>;
 
     /// A callback function for the game to register a new `Guess`
     /// with this strategy.
@@ -77,17 +82,26 @@ impl Strategy for EntropyStrategy {
         self.extant = self.extant.filter_pattern(&self.knowledge);
     }
 
-    fn chosen_guess(&self) -> WordPtr {
+    fn chosen_guess(&self) -> Option<WordPtr> {
         let all_guesses = self.guesslist.possible_words();
         let extant_words = self.extant.possible_words();
 
         let pb = match self.verbosity {
-            StrategyVerbosity::PrettyPrint => ProgressBar::new(all_guesses.len() as u64),
+            StrategyVerbosity::PrettyPrint | StrategyVerbosity::Debug => {
+                ProgressBar::new(all_guesses.len() as u64)
+            }
             _ => ProgressBar::hidden(),
         };
 
+        let sty = ProgressStyle::with_template(
+            "[{spinner:.green} {elapsed_precise}] {wide_bar:.cyan/blue} {pos:>7}/{len:7} {msg} (eta {eta})",
+        )
+        .unwrap()
+        .progress_chars("##-");
+        pb.set_style(sty);
+
         let current_entropy = self.extant.unweighted_entropy();
-        let best_guess = all_guesses
+        let mut guess_score_pairs: Vec<(f64, WordPtr)> = all_guesses
             .par_iter()
             .map(|guess| {
                 let mut possible_patterns: HashMap<Vec<TileOutcome>, usize> = HashMap::new();
@@ -100,12 +114,19 @@ impl Strategy for EntropyStrategy {
                 for (outcome, count) in possible_patterns {
                     let guess = Guess {
                         guess: guess.get_word().chars().collect(),
-                        outcome,
+                        outcome: outcome.clone(),
                     };
                     let pattern = self.knowledge.ingest(&guess);
                     let sublist = self.extant.filter_pattern(&pattern);
 
-                    let new_entropy = sublist.unweighted_entropy();
+                    let new_entropy = if current_entropy == 0.0_f64
+                        && outcome.iter().all(|item| item == &TileOutcome::Green)
+                    {
+                        ENTROPY_STRATEGY_WIN_VALUE
+                    } else {
+                        sublist.unweighted_entropy()
+                    };
+
                     let improvement = current_entropy - new_entropy;
                     total_gain += (count as f64) * improvement;
                 }
@@ -114,24 +135,23 @@ impl Strategy for EntropyStrategy {
 
                 // Since words.len() is constant, maximizing `total_gain` is equivalent to
                 // maximizing average gain.
-                (total_gain, guess)
+                (total_gain, guess.clone())
             })
-            .reduce_with(
-                |(i1, g1), (i2, g2)| {
-                    if i1 > i2 {
-                        (i1, g1)
-                    } else {
-                        (i2, g2)
-                    }
-                },
-            );
+            .collect();
+
+        guess_score_pairs.sort_by(|(s1, _), (s2, _)| s2.partial_cmp(s1).unwrap());
+        let best_guess = guess_score_pairs.first();
 
         pb.finish_and_clear();
 
-        best_guess
-            .expect("Could not compute best guess for EntropyStrategy!")
-            .1
-            .clone()
+        if self.verbosity == StrategyVerbosity::Debug {
+            for idx in 0..guess_score_pairs.len().min(5) {
+                let (score, guess) = guess_score_pairs.get(idx)?;
+                println!("{} ({})", guess, score);
+            }
+        }
+
+        best_guess.map(|(_, guess)| guess).cloned()
     }
 
     fn metrics(&self) -> BTreeMap<String, f64> {

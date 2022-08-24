@@ -10,7 +10,7 @@ use crate::{
 const ALLOWED_GUESSES_PER_GAME: usize = 6;
 
 /// Represents the outcomes of a guess for a single character tile.
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, Copy, Clone, PartialEq, Eq)]
 pub enum TileOutcome {
     Gray,
     Yellow,
@@ -135,7 +135,7 @@ impl Game {
     }
 
     /// Retrieve next guess from strategy.
-    pub fn next_guess(&self) -> WordPtr {
+    pub fn next_guess(&self) -> Option<WordPtr> {
         self.strategy.chosen_guess()
     }
 
@@ -179,6 +179,10 @@ impl Game {
         if self.debug {
             term.move_cursor_down(2)?;
             term.write_line(format!("{}", self.strategy).as_str())?;
+
+            if self.extant_guesses().len() < 5 {
+                term.write_line(format!("Extant words: {:?}", self.extant_guesses()).as_str())?;
+            }
         }
 
         Ok(())

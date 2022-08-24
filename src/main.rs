@@ -56,7 +56,12 @@ fn human_repl(game: &mut Game) -> Result<(), std::io::Error> {
             game.make_guess(word);
         } else {
             term.write_line("Consulting strategy for next guess.")?;
-            game.make_guess(game.next_guess());
+
+            let guess = game.next_guess().ok_or(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Could not retrieve guess strategy!",
+            ))?;
+            game.make_guess(guess);
         }
 
         term.clear_screen()?;
@@ -76,11 +81,15 @@ fn main() {
     let guess_list = Wordlist::init(&args.guess_list);
 
     let mut game = Game::init(guess_list, answer_list, &EntropyStrategy::init);
-    game.set_debug(&(args.debug != 0));
-    // game.choose_random_word();
-    game.choose_word("mocha");
-    game.make_guess(std::sync::Arc::new(words::Word::from("soare")));
-    game.set_verbosity(strategy::StrategyVerbosity::PrettyPrint);
+    game.choose_random_word();
+
+    if args.debug != 0 {
+        game.set_debug(&true);
+        game.set_verbosity(strategy::StrategyVerbosity::Debug);
+    } else {
+        game.set_debug(&false);
+        game.set_verbosity(strategy::StrategyVerbosity::PrettyPrint);
+    }
 
     human_repl(&mut game).unwrap();
 

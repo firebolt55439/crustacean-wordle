@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -110,6 +110,13 @@ impl Pattern {
 #[derive(Default)]
 pub struct Word {
     word: Vec<char>,
+}
+
+impl Debug for Word {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s: String = String::from_iter(self.word.iter());
+        write!(f, "{}", s)
+    }
 }
 
 pub type WordPtr = Arc<Word>;

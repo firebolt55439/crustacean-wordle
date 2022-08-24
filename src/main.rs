@@ -10,6 +10,7 @@ use std::{path::PathBuf, sync::atomic::AtomicU64};
 use strategy::EntropyStrategy;
 use words::{HasWords, Wordlist, WordlistPtr};
 
+mod bitmask;
 mod game;
 mod strategy;
 mod words;

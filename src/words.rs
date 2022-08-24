@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -9,6 +9,7 @@ use counter::Counter;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
+use crate::bitmask::*;
 use crate::game::Guess;
 use crate::game::TileOutcome;
 
@@ -18,8 +19,6 @@ pub const WORD_LENGTH: usize = 5;
 /// Strip out words that have a frequency score of lower than this threshold.
 // const FREQ_SCORE_THRESHOLD: f64 = 1000_f64;
 const FREQ_SCORE_THRESHOLD: f64 = 0_f64;
-
-pub type LetterBitmask = u64;
 
 /// For a specific word character position, this object records whether or not
 /// the position is known to contain a specific character or known to not
@@ -105,43 +104,6 @@ impl Pattern {
             must_contain,
             constraints,
         }
-    }
-}
-
-trait CanRepresentLetterBitmask {
-    fn char_bitmask(ch: &char) -> Self;
-
-    fn compute_bitmask<'a, T>(word: T) -> Self
-    where
-        T: Iterator<Item = &'a char>;
-}
-
-impl CanRepresentLetterBitmask for LetterBitmask {
-    #[inline(always)]
-    fn char_bitmask(ch: &char) -> Self {
-        1_u64 << (ch.to_ascii_lowercase() as u8 - 'a' as u8)
-    }
-
-    fn compute_bitmask<'a, T>(word: T) -> Self
-    where
-        T: Iterator<Item = &'a char>,
-    {
-        let mut output = 0_u64;
-        for ch in word {
-            output |= LetterBitmask::char_bitmask(ch);
-        }
-
-        output
-    }
-}
-
-trait CanConvertToLetterBitmask {
-    fn to_letter_bitmask(&self) -> LetterBitmask;
-}
-
-impl CanConvertToLetterBitmask for Vec<char> {
-    fn to_letter_bitmask(&self) -> LetterBitmask {
-        LetterBitmask::compute_bitmask(self.iter())
     }
 }
 

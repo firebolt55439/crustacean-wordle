@@ -14,7 +14,8 @@ TODO:
 - [x] have separate wordlists for guessing + choosing
 - [x] make answer/guess list have frequency scores
 - [x] in the strategy solver, in outer loop, consider ALL guesses (some invalid guesses may provide far more information)
-- [ ] fix the height thing
+- [x] fix the height thing
+
 - [ ] modify strategy to use weighted entropy when # of extant words is below a threshold
 - [ ] evaluate strategy on all words in the set; cache initial guess
 - [ ] once above is done, we can backtest improvements in the strategy

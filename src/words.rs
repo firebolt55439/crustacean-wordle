@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use counter::Counter;
@@ -12,10 +13,11 @@ use crate::game::Guess;
 use crate::game::TileOutcome;
 
 /// Allowed word length (all words not of this length are filtered out in the Wordlist initializer).
-const WORD_LENGTH: usize = 5;
+pub const WORD_LENGTH: usize = 5;
 
 /// Strip out words that have a frequency score of lower than this threshold.
-const FREQ_SCORE_THRESHOLD: f64 = 1000_f64;
+// const FREQ_SCORE_THRESHOLD: f64 = 1000_f64;
+const FREQ_SCORE_THRESHOLD: f64 = 0_f64;
 
 /// For a specific word character position, this object records whether or not
 /// the position is known to contain a specific character or known to not
@@ -315,10 +317,10 @@ impl Wordlist {
     /// requires that the first column corresponds to the word and the last column
     /// corresponds to a nonnegative score, such that higher scores indicate the
     /// word more frequently occurs.
-    pub fn init(path: &String) -> Arc<Self> {
+    pub fn init(path: &PathBuf) -> Arc<Self> {
         println!("Loading wordlist...");
-        let file =
-            File::open(path).expect(format!("Could not read wordlist at path '{}'", path).as_str());
+        let file = File::open(path)
+            .expect(format!("Could not read wordlist at path '{:?}'", path).as_str());
 
         let mut words: Vec<WordPtr> = vec![];
         let mut scores: Vec<f64> = vec![];
@@ -356,6 +358,10 @@ impl Wordlist {
     /// is found, else None.
     pub fn get_word(&self, word: &str) -> Option<WordPtr> {
         self.words.iter().find(|&w| w.get_word() == word).cloned()
+    }
+
+    pub fn get_word_slice(&self) -> &[WordPtr] {
+        &self.words
     }
 
     /// Normalize scores in the given vector by mapping them to a function of

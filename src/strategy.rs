@@ -1,6 +1,10 @@
 use indicatif::ProgressBar;
 use rayon::prelude::*;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+    sync::Arc,
+};
 
 use crate::{
     game::{Guess, TileOutcome},
@@ -14,7 +18,7 @@ pub enum StrategyVerbosity {
 }
 
 /// Represents a game strategy for use with `Game`.
-pub trait Strategy {
+pub trait Strategy: Display {
     /// All the guesses this strategy will consider making.
     fn extant_guesses(&self) -> &[WordPtr];
 
@@ -26,10 +30,10 @@ pub trait Strategy {
     fn register_guess(&mut self, guess: &Guess);
 
     /// Return strategy metrics.
-    fn metrics(&self) -> HashMap<String, f64>;
+    fn metrics(&self) -> BTreeMap<String, f64>;
 
     /// Pretty-print strategy information.
-    fn pretty_print(&self, history: &Vec<HashMap<String, f64>>);
+    fn pretty_print(&self, history: &Vec<BTreeMap<String, f64>>);
 
     /// Set strategy verbosity.
     fn set_verbosity(&mut self, verbosity: StrategyVerbosity);
@@ -38,7 +42,29 @@ pub trait Strategy {
 pub struct EntropyStrategy {
     knowledge: Pattern,
     verbosity: StrategyVerbosity,
+    guesslist: WordlistPtr,
     extant: Arc<dyn CanPatternFilter + Send + Sync>,
+}
+
+impl Display for EntropyStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "# Extant Guesses: {} (entropy: {})",
+            self.extant_guesses().len(),
+            self.extant.unweighted_entropy()
+        )?;
+        writeln!(f, "Disallowed characters: {:?}", self.knowledge.disallowed)?;
+        writeln!(
+            f,
+            "Must-contain characters: {:?}",
+            self.knowledge.must_contain
+        )?;
+        writeln!(f, "Constraints: {:?}", self.knowledge.constraints)?;
+        writeln!(f)?;
+
+        Ok(())
+    }
 }
 
 impl Strategy for EntropyStrategy {
@@ -52,20 +78,20 @@ impl Strategy for EntropyStrategy {
     }
 
     fn chosen_guess(&self) -> WordPtr {
-        let words = self.extant.possible_words();
+        let all_guesses = self.guesslist.possible_words();
+        let extant_words = self.extant.possible_words();
 
         let pb = match self.verbosity {
-            StrategyVerbosity::PrettyPrint => ProgressBar::new(words.len() as u64),
+            StrategyVerbosity::PrettyPrint => ProgressBar::new(all_guesses.len() as u64),
             _ => ProgressBar::hidden(),
         };
 
         let current_entropy = self.extant.unweighted_entropy();
-        let best_guess = words
+        let best_guess = all_guesses
             .par_iter()
-            // .iter()
             .map(|guess| {
                 let mut possible_patterns: HashMap<Vec<TileOutcome>, usize> = HashMap::new();
-                for actual_word in words {
+                for actual_word in extant_words {
                     let outcome = actual_word.outcome_of_guess(guess.clone());
                     *possible_patterns.entry(outcome).or_insert(0) += 1;
                 }
@@ -108,8 +134,8 @@ impl Strategy for EntropyStrategy {
             .clone()
     }
 
-    fn metrics(&self) -> HashMap<String, f64> {
-        HashMap::from([
+    fn metrics(&self) -> BTreeMap<String, f64> {
+        BTreeMap::from([
             (
                 "extant_guesses".to_string(),
                 self.extant_guesses().len() as f64,
@@ -125,16 +151,8 @@ impl Strategy for EntropyStrategy {
         ])
     }
 
-    fn pretty_print(&self, history: &Vec<HashMap<String, f64>>) {
-        println!(
-            "# Extant Guesses: {} (entropy: {})",
-            self.extant_guesses().len(),
-            self.extant.unweighted_entropy()
-        );
-        println!("Disallowed characters: {:?}", self.knowledge.disallowed);
-        println!("Must-contain characters: {:?}", self.knowledge.must_contain);
-        println!("Constraints: {:?}", self.knowledge.constraints);
-        println!();
+    fn pretty_print(&self, history: &Vec<BTreeMap<String, f64>>) {
+        println!("{}", self);
 
         for (idx, metrics) in history.iter().enumerate() {
             println!("History Entry #{}: {:?}", idx + 1, metrics);
@@ -152,7 +170,8 @@ impl EntropyStrategy {
         Box::new(EntropyStrategy {
             knowledge: Pattern::default(),
             verbosity: StrategyVerbosity::Silent,
-            extant: wordlist.clone(),
+            guesslist: wordlist.clone(),
+            extant: wordlist,
         })
     }
 }

@@ -69,6 +69,7 @@ pub struct Game {
     guesslist: WordlistPtr,
     history: Vec<BTreeMap<String, f64>>,
     strategy: Box<dyn Strategy>,
+    debug: bool,
 }
 
 pub enum GameState {
@@ -93,6 +94,7 @@ impl Game {
             guesslist: guesslist.clone(),
             history: vec![],
             strategy: strategy_init(guesslist),
+            debug: false,
         };
         game.push_metrics();
         game
@@ -174,6 +176,11 @@ impl Game {
             term.write_line("No guesses yet.")?;
         }
 
+        if self.debug {
+            term.move_cursor_down(2)?;
+            term.write_line(format!("{}", self.strategy).as_str())?;
+        }
+
         Ok(())
     }
 
@@ -226,6 +233,11 @@ impl Game {
     /// Set strategy verbosity.
     pub fn set_verbosity(&mut self, verbosity: StrategyVerbosity) {
         self.strategy.set_verbosity(verbosity)
+    }
+
+    /// Set debug verbosity on or off.
+    pub fn set_debug(&mut self, debug: &bool) {
+        self.debug = *debug;
     }
 
     /// Retrieve wordlist.

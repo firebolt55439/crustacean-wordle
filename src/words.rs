@@ -463,6 +463,24 @@ mod tests {
         assert!(Word::from("rewed").matches(&pattern));
         assert!(Word::from("beweded").matches(&pattern));
         assert!(!Word::from("zeweded").matches(&pattern));
+
+        let pattern = Pattern {
+            disallowed: HashSet::from_iter(vec![
+                't', 'b', 'i', 'n', 'g', 's', 'z', 'e', 'l', 'u', 'y', 'r',
+            ]),
+            must_contain: HashMap::from_iter(vec![('a', 1), ('o', 1), ('h', 1), ('c', 1)]),
+            constraints: HashMap::from_iter(vec![
+                (0, PlaceConstraint::IsNotChars(vec!['s', 'l', 'b', 'a'])),
+                (1, PlaceConstraint::IsChar('o')),
+                (2, PlaceConstraint::IsNotChars(vec!['a', 'n', 't', 'y'])),
+                (3, PlaceConstraint::IsNotChars(vec!['r', 'a', 'o', 'g'])),
+                (4, PlaceConstraint::IsNotChars(vec!['e', 'c', 'h', 'y'])),
+            ]),
+        };
+
+        assert!(Word::from("mocha").matches(&pattern));
+        assert!(!Word::from("azygy").matches(&pattern));
+        assert!(!Word::from("bocha").matches(&pattern));
     }
 
     #[test]

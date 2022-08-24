@@ -21,6 +21,10 @@ struct Args {
     /// The wordlist of possible answers to randomly choose from
     #[clap(short, long, value_parser, value_name = "FILE")]
     answer_list: PathBuf,
+
+    /// Turn debugging information on
+    #[clap(short, long, action = clap::ArgAction::Count)]
+    debug: u8,
 }
 
 fn human_repl(game: &mut Game) -> Result<(), std::io::Error> {
@@ -72,7 +76,10 @@ fn main() {
     let guess_list = Wordlist::init(&args.guess_list);
 
     let mut game = Game::init(guess_list, answer_list, &EntropyStrategy::init);
-    game.choose_random_word();
+    game.set_debug(&(args.debug != 0));
+    // game.choose_random_word();
+    game.choose_word("mocha");
+    game.make_guess(std::sync::Arc::new(words::Word::from("soare")));
     game.set_verbosity(strategy::StrategyVerbosity::PrettyPrint);
 
     human_repl(&mut game).unwrap();

@@ -70,9 +70,6 @@ fn human_repl(game: &mut Game) -> Result<(), std::io::Error> {
     }
 
     term.move_cursor_down(1)?;
-    term.write_line(format!("{}", game).as_str())?;
-
-    term.move_cursor_down(1)?;
     term.write_line("Thanks for playing!")
 }
 
@@ -93,6 +90,12 @@ fn main() {
     }
 
     human_repl(&mut game).unwrap();
+
+    if args.debug != 0 {
+        let term = Term::stdout();
+        term.move_cursor_down(1).unwrap();
+        term.write_line(format!("{}", game).as_str()).unwrap();
+    }
 
     /*
     while !game.is_over() {

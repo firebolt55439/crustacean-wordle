@@ -17,3 +17,9 @@ counter = "0.5.6"
 console = "0.15.1"
 dialoguer = { version = "0.10.2", features = ["editor", "password", "fuzzy-select", "fuzzy-matcher"] }
 clap = { version = "3.2.17", features = ["derive"] }
+
+[workspace]
+exclude = ["deps/*"]
+
+[patch.crates-io]
+dialoguer = { path = "deps/dialoguer" }

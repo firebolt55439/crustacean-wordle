@@ -47,6 +47,7 @@ fn human_repl(game: &mut Game) -> Result<(), std::io::Error> {
         {
             let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
                 .with_prompt("What is your guess?")
+                .with_visible_term_rows(10_usize)
                 .items(word_slice)
                 .report(true)
                 .default(0)
